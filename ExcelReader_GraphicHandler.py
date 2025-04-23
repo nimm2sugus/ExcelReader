@@ -18,7 +18,7 @@ if uploaded_file:
     st.caption("Datentypen:")
     st.write(df.dtypes)
 
-    # Zeitspalten erkennen
+    # Zeitspalten erkennen (Konvertierung falls nötig)
     time_candidates = []
     for col in df.columns:
         try:
@@ -33,11 +33,12 @@ if uploaded_file:
     else:
         x_col = st.selectbox("Wähle die Zeitspalte (x-Achse)", time_candidates)
 
-        # Nur echte numerische Spalten für y (keine Umwandlung!)
-        numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
+        # Nur numerische Spalten (die wirklich numerisch sind) beibehalten
+        # Wir prüfen nur den Typ (float64, int64)
+        numeric_cols = df.select_dtypes(include=["float64", "int64"]).columns.tolist()
 
         if not numeric_cols:
-            st.warning("Keine numerischen Spalten erkannt. Überprüfe die Datentypen oben. Möglicherweise sind Zahlen als Text formatiert.")
+            st.warning("Keine numerischen Spalten erkannt. Überprüfe die Datentypen oben.")
         else:
             y_cols = st.multiselect("Wähle eine oder mehrere Spalten für die y-Achse", numeric_cols)
 
