@@ -12,11 +12,18 @@ if uploaded_file:
     elif uploaded_file.name.endswith(".xlsx"):
         df = pd.read_excel(uploaded_file)
 
+    # Info anzeigen
+    st.subheader("Vorschau der Daten")
+    st.dataframe(df.head())
+    st.caption("Datentypen:")
+    st.write(df.dtypes)
+
     # Zeitspalten erkennen
     time_candidates = []
     for col in df.columns:
         try:
-            df[col] = pd.to_datetime(df[col], errors='raise')
+            parsed = pd.to_datetime(df[col], errors='raise')
+            df[col] = parsed
             time_candidates.append(col)
         except:
             continue
@@ -26,10 +33,11 @@ if uploaded_file:
     else:
         x_col = st.selectbox("Wähle die Zeitspalte (x-Achse)", time_candidates)
 
-        # Nur numerische Spalten für y
+        # Nur echte numerische Spalten für y (keine Umwandlung!)
         numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
+
         if not numeric_cols:
-            st.error("Keine numerischen Spalten gefunden für die y-Achse.")
+            st.warning("Keine numerischen Spalten erkannt. Überprüfe die Datentypen oben. Möglicherweise sind Zahlen als Text formatiert.")
         else:
             y_cols = st.multiselect("Wähle eine oder mehrere Spalten für die y-Achse", numeric_cols)
 
