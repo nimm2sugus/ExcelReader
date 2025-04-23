@@ -18,15 +18,18 @@ if uploaded_file:
     st.caption("Datentypen:")
     st.write(df.dtypes)
 
-    # Zeitspalten erkennen (Konvertierung falls nötig)
+    # Zeitspalten erkennen (nur Spalten, die Datetime sind)
     time_candidates = []
     for col in df.columns:
-        try:
-            parsed = pd.to_datetime(df[col], errors='raise')
-            df[col] = parsed
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
             time_candidates.append(col)
-        except:
-            continue
+        else:
+            try:
+                parsed = pd.to_datetime(df[col], errors='raise')
+                df[col] = parsed
+                time_candidates.append(col)
+            except:
+                continue
 
     if not time_candidates:
         st.error("Keine Zeitspalte erkannt. Bitte stelle sicher, dass eine Spalte gültige Datumswerte enthält.")
