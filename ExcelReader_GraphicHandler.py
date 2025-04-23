@@ -6,7 +6,17 @@ st.title("Zeitreihen-Analyse Tool")
 
 uploaded_file = st.file_uploader("Lade eine CSV-Datei hoch", type=["csv"])
 if uploaded_file:
-    df = pd.read_csv(uploaded_file)
+    try:
+        # Versuch mit utf-8
+        df = pd.read_csv(uploaded_file)
+    except UnicodeDecodeError:
+        try:
+            # Wenn das fehlschlägt, versuche ISO-8859-1
+            uploaded_file.seek(0)
+            df = pd.read_csv(uploaded_file, encoding='ISO-8859-1')
+        except Exception as e:
+            st.error(f"Fehler beim Einlesen der Datei: {e}")
+            st.stop()
 
     # Konvertiere alle Spalten, die wie Zeit aussehen, in datetime
     time_candidates = []
