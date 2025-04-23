@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
+# Layout auf "wide" setzen
+st.set_page_config(layout="wide")
+
 st.title("Zeitreihen-Analyse Tool")
 
 uploaded_file = st.file_uploader("Lade eine CSV- oder Excel-Datei hoch", type=["csv", "xlsx"])
@@ -14,7 +17,7 @@ if uploaded_file:
 
     # Vorschau & Datentypen
     st.subheader("Vorschau der Daten")
-    st.dataframe(df.head())
+    st.dataframe(df.head(), use_container_width=True)
     st.caption("Datentypen:")
     st.write(df.dtypes)
 
