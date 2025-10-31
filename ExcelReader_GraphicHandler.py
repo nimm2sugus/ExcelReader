@@ -16,70 +16,56 @@ if uploaded_file:
     elif uploaded_file.name.endswith(".xlsx"):
         df_original = pd.read_excel(uploaded_file)
 
-    # Erstelle eine Kopie für alle Bearbeitungen (Filtern, Plotten etc.)
+    # Erstelle eine Kopie. Diese wird nicht mehr gefiltert, sondern bleibt vollständig.
     df_processed = df_original.copy()
 
+    # --- Start der Logik zur Hervorhebung in der Sidebar ---
+    st.sidebar.header("Zeitbereich hervorheben")
+    st.sidebar.info("Wähle hier eine Zeitspanne aus, die im Diagramm farblich markiert werden soll. Es werden keine Daten entfernt.")
 
-    # --- Start der Filter-Logik in der Sidebar ---
-    st.sidebar.header("Filteroptionen")
-
-    filter_col = st.sidebar.selectbox(
-        "Wähle die Zeitspalte für den Daten-Filter",
+    # Der Benutzer wählt die Zeitspalte aus, die für die Hervorhebung massgebend ist.
+    highlight_col = st.sidebar.selectbox(
+        "Wähle die Zeitspalte für die Hervorhebung",
         options=[None] + df_original.columns.tolist()
     )
 
-    if filter_col:
-        temp_time_series = pd.to_datetime(df_processed[filter_col], errors='coerce')
+    highlight_start_time = None
+    highlight_end_time = None
 
+    if highlight_col:
+        # Prüfen, ob die Spalte in ein Datum konvertiert werden kann, ohne die Originaldaten zu ändern.
+        temp_time_series = pd.to_datetime(df_processed[highlight_col], errors='coerce')
         if not temp_time_series.notna().any():
-            st.sidebar.error(f"Die Spalte '{filter_col}' konnte nicht als Zeitstempel interpretiert werden.")
+            st.sidebar.error(f"Die Spalte '{highlight_col}' konnte nicht als Zeitstempel interpretiert werden.")
+            highlight_col = None # Ungültige Spalte zurücksetzen
         else:
-            start_time = st.sidebar.time_input("Startzeit für Daten", datetime.time(0, 0))
-            end_time = st.sidebar.time_input("Endzeit für Daten", datetime.time(23, 59))
+            # Zeitauswahl für die Hervorhebung
+            highlight_start_time = st.sidebar.time_input("Startzeit der Hervorhebung", datetime.time(8, 0))
+            highlight_end_time = st.sidebar.time_input("Endzeit der Hervorhebung", datetime.time(12, 0))
 
-            if start_time < end_time:
-                mask = temp_time_series.dt.time.between(start_time, end_time)
-                df_processed = df_processed[mask]
-                st.sidebar.success(f"Daten gefiltert für den Zeitraum zwischen {start_time.strftime('%H:%M')} und {end_time.strftime('%H:%M')}.")
-            else:
-                st.sidebar.warning("Die Startzeit muss vor der Endzeit liegen.")
-
-    # --- Ende der Filter-Logik ---
+    # --- Ende der Hervorhebungs-Logik ---
 
 
     # Vorschau & Datentypen
     st.subheader("Vorschau der Daten")
-    st.caption("Die hier angezeigten Daten sind gefiltert, falls ein Filter in der Seitenleiste aktiv ist.")
     st.dataframe(df_processed.head(), use_container_width=True)
     st.caption("Ursprüngliche Datentypen:")
     st.write(df_original.dtypes)
 
 
     # --- Plot-Logik ---
-    st.subheader("Diagramm erstellen")
+    st.subheader("Diagramm")
 
     numeric_cols = df_processed.select_dtypes(include='number').columns.tolist()
 
     if not numeric_cols:
-        st.error("Keine numerischen Spalten in den (gefilterten) Daten gefunden.")
+        st.error("Keine numerischen Spalten in den Daten gefunden.")
     else:
         y_cols = st.multiselect("Wähle eine oder mehrere Spalten für die y-Achse", numeric_cols)
         x_col = st.selectbox(
             "Wähle die Spalte für die Zeitachse (x-Achse)",
             options=df_processed.columns.tolist()
         )
-
-        # --- Start der NEUEN Achsen-Einstellungen ---
-        st.subheader("Achsen-Einstellungen")
-        st.caption("Lege den initialen sichtbaren Zeitbereich für die x-Achse fest.")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            axis_start_time = st.time_input("Startzeit für Achse", datetime.time(0, 0))
-        with col2:
-            axis_end_time = st.time_input("Endzeit für Achse", datetime.time(23, 59))
-        # --- Ende der NEUEN Achsen-Einstellungen ---
-
 
         if y_cols and x_col:
             st.info(f"Für die Visualisierung wird die Spalte '{x_col}' als Zeitstempel behandelt.")
@@ -89,22 +75,30 @@ if uploaded_file:
             df_plot.dropna(subset=[x_col] + y_cols, inplace=True)
 
             if not df_plot.empty:
+                # Schritt 1: Erstelle das Diagramm mit ALLEN Daten
                 fig = px.line(df_plot, x=x_col, y=y_cols, title="Zeitreihen-Diagramm")
 
-                # --- Start der NEUEN Logik zur Anpassung der Achse ---
-                if axis_start_time < axis_end_time:
-                    # Nimm das Datum des ersten Datenpunktes als Basis für den Zoom
-                    start_date = df_plot[x_col].min().date()
-                    
-                    # Erstelle die vollen datetime-Objekte für den sichtbaren Bereich
-                    zoom_start = datetime.datetime.combine(start_date, axis_start_time)
-                    zoom_end = datetime.datetime.combine(start_date, axis_end_time)
+                # Schritt 2: Füge die Hervorhebung hinzu, falls ausgewählt
+                if highlight_col and highlight_start_time and highlight_end_time:
+                    if highlight_start_time < highlight_end_time:
+                        # Finde alle einzigartigen Tage in den Daten
+                        unique_dates = df_plot[x_col].dt.date.unique()
 
-                    # Wende den initialen Zoom auf die x-Achse an
-                    fig.update_xaxes(range=[zoom_start, zoom_end])
-                else:
-                    st.warning("Die Startzeit für die Achse muss vor der Endzeit liegen, um den Zoom anzuwenden.")
-                # --- Ende der NEUEN Logik ---
+                        # Erstelle für jeden Tag einen markierten Bereich
+                        for date in unique_dates:
+                            start_dt = datetime.datetime.combine(date, highlight_start_time)
+                            end_dt = datetime.datetime.combine(date, highlight_end_time)
+                            
+                            fig.add_vrect(
+                                x0=start_dt,
+                                x1=end_dt,
+                                fillcolor="LightSalmon",
+                                opacity=0.3,
+                                layer="below", # Wichtig: Legt den Bereich hinter die Datenlinien
+                                line_width=0,
+                            )
+                    else:
+                        st.sidebar.warning("Die Startzeit für die Hervorhebung muss vor der Endzeit liegen.")
 
                 st.plotly_chart(fig, use_container_width=True)
             else:
