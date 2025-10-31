@@ -10,92 +10,91 @@ st.title("Zeitreihen-Analyse Tool")
 
 uploaded_file = st.file_uploader("Lade eine CSV- oder Excel-Datei hoch", type=["csv", "xlsx"])
 if uploaded_file:
-    # Datei laden
+    # Schritt 1: Datei in einen "originalen" DataFrame laden
     if uploaded_file.name.endswith(".csv"):
-        df = pd.read_csv(uploaded_file)
+        df_original = pd.read_csv(uploaded_file)
     elif uploaded_file.name.endswith(".xlsx"):
-        df = pd.read_excel(uploaded_file)
+        df_original = pd.read_excel(uploaded_file)
 
-    # --- Start der neuen Filter-Logik in der Sidebar ---
+    # Erstelle eine Kopie für alle Bearbeitungen (Filtern, Plotten etc.)
+    df_processed = df_original.copy()
+
+
+    # --- Start der neuen, sicheren Filter-Logik in der Sidebar ---
     st.sidebar.header("Filteroptionen")
 
-    # Zeitspalten erkennen
-    time_candidates = []
-    for col in df.columns:
-        # Versuche, die Spalte in ein Datumsformat zu konvertieren
-        try:
-            df[col] = pd.to_datetime(df[col], errors='coerce')
-            if pd.api.types.is_datetime64_any_dtype(df[col]):
-                time_candidates.append(col)
-        except Exception:
-            continue
+    # Der Benutzer wählt die Zeitspalte aus ALLEN Spalten aus.
+    # Eine 'None'-Option erlaubt das Deaktivieren des Filters.
+    filter_col = st.sidebar.selectbox(
+        "Wähle die Zeitspalte für den Filter",
+        options=[None] + df_original.columns.tolist()
+    )
 
-    # Wenn Zeitspalten gefunden wurden, zeige den Zeitfilter an
-    if time_candidates:
-        x_col_sidebar = st.sidebar.selectbox(
-            "Wähle die Zeitspalte für den Filter",
-            time_candidates,
-            key="sidebar_time_col_selector" # Eindeutiger Schlüssel
-        )
+    if filter_col:
+        # Schritt 2: Wandle NUR die ausgewählte Spalte temporär um.
+        # Dies geschieht in einer separaten Pandas-Serie und verändert NICHT df_processed.
+        temp_time_series = pd.to_datetime(df_processed[filter_col], errors='coerce')
 
-        # Zeitauswahl für den Filter
-        start_time = st.sidebar.time_input("Startzeit", datetime.time(0, 0))
-        end_time = st.sidebar.time_input("Endzeit", datetime.time(23, 59))
-
-        # Filtere den DataFrame basierend auf der ausgewählten Zeit
-        if start_time < end_time:
-            # Stelle sicher, dass die Zeitspalte ein datetime-Objekt ist
-            df[x_col_sidebar] = pd.to_datetime(df[x_col_sidebar])
-            # Filtere basierend auf der Uhrzeit
-            df = df[df[x_col_sidebar].dt.time.between(start_time, end_time)]
-            st.success(f"Daten gefiltert für den Zeitraum zwischen {start_time.strftime('%H:%M')} und {end_time.strftime('%H:%M')}.")
+        # Prüfen, ob die Konvertierung mindestens einen gültigen Wert ergeben hat
+        if not temp_time_series.notna().any():
+            st.sidebar.error(f"Die Spalte '{filter_col}' konnte nicht als Zeitstempel interpretiert werden. Bitte wähle eine andere Spalte.")
         else:
-            st.sidebar.warning("Die Startzeit muss vor der Endzeit liegen.")
+            # Wenn erfolgreich, zeige die Zeitauswahl an
+            start_time = st.sidebar.time_input("Startzeit", datetime.time(0, 0))
+            end_time = st.sidebar.time_input("Endzeit", datetime.time(23, 59))
 
-    else:
-        st.sidebar.info("Keine Zeitspalte für den Filter gefunden.")
+            if start_time < end_time:
+                # Erstelle eine Maske basierend auf der temporären Zeit-Serie
+                mask = temp_time_series.dt.time.between(start_time, end_time)
+                # Wende die Maske auf den Bearbeitungs-DataFrame an
+                df_processed = df_processed[mask]
+                st.sidebar.success(f"Daten gefiltert für den Zeitraum zwischen {start_time.strftime('%H:%M')} und {end_time.strftime('%H:%M')}.")
+            else:
+                st.sidebar.warning("Die Startzeit muss vor der Endzeit liegen.")
 
-    # --- Ende der neuen Filter-Logik ---
+    # --- Ende der Filter-Logik ---
 
 
-    # Vorschau & Datentypen (zeigt gefilterte Daten an, falls Filter aktiv)
+    # Vorschau & Datentypen
     st.subheader("Vorschau der Daten")
-    st.dataframe(df.head(), use_container_width=True)
-    st.caption("Datentypen:")
-    st.write(df.dtypes)
+    st.caption("Die hier angezeigten Daten sind gefiltert, falls ein Filter in der Seitenleiste aktiv ist.")
+    st.dataframe(df_processed.head(), use_container_width=True)
+
+    # Zeige die Datentypen der *ursprünglichen* Datei, um Klarheit zu schaffen
+    st.caption("Ursprüngliche Datentypen der hochgeladenen Datei:")
+    st.write(df_original.dtypes)
 
 
-    # Auswahl für x-Achse (Zeit) im Hauptbereich
-    # Die Kandidatenliste wird hier neu erstellt, falls Spalten konvertiert wurden
-    main_time_candidates = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
+    # --- Plot-Logik ---
+    st.subheader("Diagramm erstellen")
 
-    if main_time_candidates:
-        x_col_main = st.selectbox("Wähle die Zeitspalte (x-Achse)", main_time_candidates, key="main_time_col_selector")
-    else:
-        x_col_main = None
-        st.warning("Keine Zeitspalte erkannt. Die Datei wird ohne Zeitachse geplottet.")
-
-    # Numerische Spalten erkennen (robust!)
-    numeric_cols = []
-    for col in df.columns:
-        # Versuch Konvertierung
-        numeric_series = pd.to_numeric(df[col], errors="coerce")
-        if numeric_series.notna().sum() > 0:
-            numeric_cols.append(col)
-
-    # Zeitspalten aus den numerischen Spalten entfernen
-    numeric_cols = [col for col in numeric_cols if col not in main_time_candidates]
+    # Numerische Spalten aus dem (potenziell gefilterten) DataFrame erkennen
+    numeric_cols = df_processed.select_dtypes(include='number').columns.tolist()
 
     if not numeric_cols:
-        st.error("Keine numerischen Spalten erkannt. Bitte überprüfe deine Daten.")
+        st.error("Keine numerischen Spalten in den (gefilterten) Daten gefunden. Bitte überprüfe deine Daten.")
     else:
+        # Auswahl der Y-Achsen
         y_cols = st.multiselect("Wähle eine oder mehrere Spalten für die y-Achse", numeric_cols)
 
-        if y_cols:
-            st.subheader("Diagramm")
-            if x_col_main:
-                # Nutze den (potenziell gefilterten) DataFrame für das Diagramm
-                fig = px.line(df, x=x_col_main, y=y_cols, title="Zeitreihen-Diagramm")
+        # Auswahl der X-Achse
+        x_col = st.selectbox(
+            "Wähle die Spalte für die Zeitachse (x-Achse)",
+            options=df_processed.columns.tolist()
+        )
+
+        if y_cols and x_col:
+            st.info(f"Für die Visualisierung wird die Spalte '{x_col}' als Zeitstempel behandelt.")
+
+            # Erstelle eine finale Kopie für den Plot, um die Typen sicher zu konvertieren
+            df_plot = df_processed.copy()
+            df_plot[x_col] = pd.to_datetime(df_plot[x_col], errors='coerce')
+
+            # Entferne Zeilen, bei denen die X- oder Y-Werte nicht gültig sind
+            df_plot.dropna(subset=[x_col] + y_cols, inplace=True)
+
+            if not df_plot.empty:
+                fig = px.line(df_plot, x=x_col, y=y_cols, title="Zeitreihen-Diagramm")
+                st.plotly_chart(fig, use_container_width=True)
             else:
-                fig = px.line(df[y_cols], title="Diagramm ohne Zeitachse")
-            st.plotly_chart(fig, use_container_width=True)
+                st.warning("Nach der Datenbereinigung sind keine gültigen Daten zum Plotten vorhanden.")
